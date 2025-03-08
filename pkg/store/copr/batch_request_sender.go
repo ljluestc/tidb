@@ -99,7 +99,11 @@ func (ss *RegionBatchRequestSender) onSendFailForBatchRegions(bo *Backoffer, ctx
 	} else if tikv.LoadShuttingDown() > 0 {
 		return tikverr.ErrTiDBShuttingDown
 	}
-
+	if regionErr, ok := err.(*tikverr.ErrRegion); ok && regionErr.StaleEpoch() {
+        rc := RegionCache{ss.GetRegionCache()}
+        rc.OnSendFailForBatchRegions(bo, ctx.Store, regionInfos, true, err)
+        return nil
+    }
 	if !config.GetGlobalConfig().DisaggregatedTiFlash {
 		// The reload region param is always true. Because that every time we try, we must
 		// re-build the range then re-create the batch sender. As a result, the len of "failStores"
