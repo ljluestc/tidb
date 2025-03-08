@@ -5344,6 +5344,7 @@ func (b *executorBuilder) buildBatchPointGet(plan *plannercore.BatchPointGetPlan
 			b.inSelectLockStmt = false
 		}()
 	}
+	isNonClusteredPKOrUK := plan.IndexInfo != nil && !plan.TblInfo.PKIsHandle
 	handles, isTableDual := plan.PrunePartitionsAndValues(b.ctx)
 	if isTableDual {
 		// No matching partitions
@@ -5352,7 +5353,9 @@ func (b *executorBuilder) buildBatchPointGet(plan *plannercore.BatchPointGetPlan
 			numDualRows:    0,
 		}
 	}
-
+	if isNonClusteredPKOrUK {
+		handles = b.handleConsecutiveValuesForNonClusteredPKOrUK(handles)
+	}
 	decoder := NewRowDecoder(b.ctx, plan.Schema(), plan.TblInfo)
 	e := &BatchPointGetExec{
 		BaseExecutor:       exec.NewBaseExecutor(b.ctx, plan.Schema(), plan.ID()),
@@ -5438,6 +5441,18 @@ func (b *executorBuilder) buildBatchPointGet(plan *plannercore.BatchPointGetPlan
 	e.SetMaxChunkSize(capacity)
 	e.buildVirtualColumnInfo()
 	return e
+}
+
+func (b *executorBuilder) handleConsecutiveValuesForNonClusteredPKOrUK(handles []kv.Handle) []kv.Handle {
+	var result []kv.Handle
+	for _, handle := range handles {
+		if handle.IsInt() {
+			result = append(result, handle)
+		} else {
+			result = append(result, handle)
+		}
+	}
+	return result
 }
 
 func newReplicaReadAdjuster(ctx sessionctx.Context, avgRowSize float64) txnkv.ReplicaReadAdjuster {
