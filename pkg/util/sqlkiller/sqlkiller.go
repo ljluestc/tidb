@@ -117,7 +117,7 @@ func (killer *SQLKiller) ClearFinishFunc() {
 
 // HandleSignal handles the kill signal and return the error.
 func (killer *SQLKiller) HandleSignal() error {
-	failpoint.Inject("randomPanic", func(val failpoint.Value) {
+	if val, _err_ := failpoint.Eval(_curpkg_("randomPanic")); _err_ == nil {
 		if p, ok := val.(int); ok {
 			if rand.Float64() > (float64)(p)/1000 {
 				if killer.ConnID.Load() != 0 {
@@ -126,7 +126,7 @@ func (killer *SQLKiller) HandleSignal() error {
 				}
 			}
 		}
-	})
+	}
 
 	// Checks if the connection is alive.
 	// For performance reasons, the check interval should be at least `checkConnectionAliveDur`(1 second).

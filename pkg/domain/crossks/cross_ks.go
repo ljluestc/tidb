@@ -85,7 +85,7 @@ func (m *Manager) GetOrCreate(
 	}
 
 	getStoreFn := getOrCreateStore
-	failpoint.InjectCall("beforeGetStore", &getStoreFn)
+	failpoint.Call(_curpkg_("beforeGetStore"), &getStoreFn)
 	store, err := getStoreFn(ks)
 	if err != nil {
 		return nil, err

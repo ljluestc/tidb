@@ -123,7 +123,7 @@ func (w *HashAggPartialWorker) fetchChunkAndProcess(ctx sessionctx.Context, hasE
 }
 
 func (w *HashAggPartialWorker) intestDuringPartialWorkerRun() {
-	failpoint.Inject("enableAggSpillIntest", func(val failpoint.Value) {
+	if val, _err_ := failpoint.Eval(_curpkg_("enableAggSpillIntest")); _err_ == nil {
 		if val.(bool) {
 			num := rand.Intn(10000)
 			if num < 3 {
@@ -141,9 +141,9 @@ func (w *HashAggPartialWorker) intestDuringPartialWorkerRun() {
 				time.Sleep(1 * time.Millisecond)
 			}
 		}
-	})
+	}
 
-	failpoint.Inject("slowSomePartialWorkers", func(val failpoint.Value) {
+	if val, _err_ := failpoint.Eval(_curpkg_("slowSomePartialWorkers")); _err_ == nil {
 		if val.(bool) {
 			num := rand.Intn(10000)
 			// Slow some partial workers
@@ -151,11 +151,11 @@ func (w *HashAggPartialWorker) intestDuringPartialWorkerRun() {
 				time.Sleep(1 * time.Millisecond)
 			}
 		}
-	})
+	}
 }
 
 func intestBeforePartialWorkerRun() {
-	failpoint.Inject("enableAggSpillIntest", func(val failpoint.Value) {
+	if val, _err_ := failpoint.Eval(_curpkg_("enableAggSpillIntest")); _err_ == nil {
 		if val.(bool) {
 			num := rand.Intn(100)
 			if num < 2 {
@@ -164,7 +164,7 @@ func intestBeforePartialWorkerRun() {
 				time.Sleep(1 * time.Millisecond)
 			}
 		}
-	})
+	}
 }
 
 func (w *HashAggPartialWorker) finalizeWorkerProcess(needShuffle bool, finalConcurrency int, hasError bool) {
@@ -260,7 +260,7 @@ func (w *HashAggPartialWorker) getPartialResultsOfEachRow(groupKey [][]byte, fin
 func (w *HashAggPartialWorker) updatePartialResult(ctx sessionctx.Context, chk *chunk.Chunk, finalConcurrency int) (err error) {
 	memSize := getGroupKeyMemUsage(w.groupKeyBuf)
 	w.groupKeyBuf, err = GetGroupKey(w.ctx, chk, w.groupKeyBuf, w.groupByItems)
-	failpoint.Inject("ConsumeRandomPanic", nil)
+	failpoint.Eval(_curpkg_("ConsumeRandomPanic"))
 	w.memTracker.Consume(getGroupKeyMemUsage(w.groupKeyBuf) - memSize)
 	if err != nil {
 		return err

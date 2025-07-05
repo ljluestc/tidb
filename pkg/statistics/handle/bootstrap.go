@@ -705,7 +705,7 @@ func (h *Handle) InitStatsLite(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	failpoint.Inject("beforeInitStatsLite", func() {})
+	failpoint.Eval(_curpkg_("beforeInitStatsLite"))
 	start := time.Now()
 	cache, err := h.initStatsMeta(ctx)
 	if err != nil {
@@ -745,7 +745,7 @@ func (h *Handle) InitStats(ctx context.Context, is infoschema.InfoSchema) (err e
 	if err != nil {
 		return err
 	}
-	failpoint.Inject("beforeInitStats", func() {})
+	failpoint.Eval(_curpkg_("beforeInitStats"))
 	start := time.Now()
 	cache, err := h.initStatsMeta(ctx)
 	if err != nil {

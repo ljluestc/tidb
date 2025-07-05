@@ -135,15 +135,15 @@ func (sch *LitBackfillScheduler) OnNextSubtasksBatch(
 		return generateMergePlan(ctx, taskHandle, task, len(execIDs), backfillMeta.CloudStorageURI, logger)
 	case proto.BackfillStepWriteAndIngest:
 		if sch.GlobalSort {
-			failpoint.Inject("mockWriteIngest", func() {
+			if _, _err_ := failpoint.Eval(_curpkg_("mockWriteIngest")); _err_ == nil {
 				m := &BackfillSubTaskMeta{
 					MetaGroups: []*external.SortedKVMeta{},
 				}
 				metaBytes, _ := m.Marshal()
 				metaArr := make([][]byte, 0, 16)
 				metaArr = append(metaArr, metaBytes)
-				failpoint.Return(metaArr, nil)
-			})
+				return metaArr, nil
+			}
 			return generateGlobalSortIngestPlan(
 				ctx,
 				storeWithPD,
@@ -178,9 +178,9 @@ func (sch *LitBackfillScheduler) GetNextStep(task *proto.TaskBase) proto.Step {
 }
 
 func skipMergeSort(stats []external.MultipleFilesStat) bool {
-	failpoint.Inject("forceMergeSort", func() {
-		failpoint.Return(false)
-	})
+	if _, _err_ := failpoint.Eval(_curpkg_("forceMergeSort")); _err_ == nil {
+		return false
+	}
 	return external.GetMaxOverlappingTotal(stats) <= external.MergeSortOverlapThreshold
 }
 
@@ -361,9 +361,9 @@ func generatePlanForPhysicalTable(
 
 // CalculateRegionBatch is exported for test.
 func CalculateRegionBatch(totalRegionCnt int, nodeCnt int, useLocalDisk bool) int {
-	failpoint.Inject("mockRegionBatch", func(val failpoint.Value) {
-		failpoint.Return(val.(int))
-	})
+	if val, _err_ := failpoint.Eval(_curpkg_("mockRegionBatch")); _err_ == nil {
+		return val.(int)
+	}
 	var regionBatch int
 	avgTasksPerInstance := (totalRegionCnt + nodeCnt - 1) / nodeCnt // ceiling
 	if useLocalDisk {
@@ -484,10 +484,10 @@ func splitSubtaskMetaForOneKVMetaGroup(
 	if err != nil {
 		return nil, err
 	}
-	failpoint.Inject("mockTSForGlobalSort", func(val failpoint.Value) {
+	if val, _err_ := failpoint.Eval(_curpkg_("mockTSForGlobalSort")); _err_ == nil {
 		i := val.(int)
 		importTS = uint64(i)
-	})
+	}
 	splitter, err := getRangeSplitter(
 		ctx, store, cloudStorageURI, int64(kvMeta.TotalKVSize), instanceCnt, kvMeta.MultipleFilesStats, logger)
 	if err != nil {

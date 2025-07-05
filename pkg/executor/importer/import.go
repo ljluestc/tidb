@@ -426,7 +426,7 @@ func NewPlanFromLoadDataPlan(userSctx sessionctx.Context, plan *plannercore.Load
 
 // NewImportPlan creates a new import into plan.
 func NewImportPlan(ctx context.Context, userSctx sessionctx.Context, plan *plannercore.ImportInto, tbl table.Table) (*Plan, error) {
-	failpoint.InjectCall("NewImportPlan", plan)
+	failpoint.Call(_curpkg_("NewImportPlan"), plan)
 	var format string
 	if plan.Format != nil {
 		format = strings.ToLower(*plan.Format)

@@ -104,9 +104,9 @@ func (m *mergeSortExecutor) RunSubtask(ctx context.Context, subtask *proto.Subta
 		true,
 		engineapi.OnDuplicateKeyError,
 	)
-	failpoint.Inject("mockMergeSortRunSubtaskError", func(_ failpoint.Value) {
+	if _, _err_ := failpoint.Eval(_curpkg_("mockMergeSortRunSubtaskError")); _err_ == nil {
 		err = context.DeadlineExceeded
-	})
+	}
 	if err != nil {
 		currentIdx, _, err2 := getIndexInfoAndID(sm.EleIDs, m.indexes)
 		if err2 == nil {
