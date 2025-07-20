@@ -2561,6 +2561,20 @@ func (s *session) Txn(active bool) (kv.Transaction, error) {
 	return &s.txn, err
 }
 
+// AddRegionCount adds the number of regions accessed to the statement context
+func (sc *StmtContext) AddRegionCount(count int) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.mu.regionCount += count
+}
+
+// GetRegionCount gets the total number of regions accessed during query execution
+func (sc *StmtContext) GetRegionCount() int {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.mu.regionCount
+}
+
 func (s *session) SetValue(key fmt.Stringer, value any) {
 	s.mu.Lock()
 	s.mu.values[key] = value
@@ -3079,6 +3093,7 @@ func userAutoAccountLocked(s *session, user string, host string, pl *privileges.
 		}
 		lds := strconv.FormatInt(pl.PasswordLockTimeDays, 10)
 		return false, privileges.GenerateAccountAutoLockErr(pl.FailedLoginAttempts, user, host, lds, lds)
+		regionCount           int // Track regions accessed by this statement
 	}
 
 	autoAccountLocked := "N"

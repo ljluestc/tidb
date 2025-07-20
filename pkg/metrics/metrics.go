@@ -109,6 +109,16 @@ func InitMetrics() {
 			Name:      "panic_total",
 			Help:      "Counter of panic.",
 		}, []string{LblType})
+		
+		// QueryRegionCountHistogram records the number of regions accessed per query
+		var QueryRegionCountHistogram = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "tidb",
+			Subsystem: "query",
+			Name:      "region_count",
+			Help:      "Number of regions accessed per query",
+			Buckets:   exponentialBuckets(1, 2, 12),
+		}, []string{"type"})
 
 	MemoryUsage = metricscommon.NewGaugeVec(
 		prometheus.GaugeOpts{

@@ -65,6 +65,12 @@ func (e *ExplainExec) Close() error {
 		// Open(), but Next() is not called.
 		return exec.Close(e.analyzeExec)
 	}
+	
+	// Add region count information to EXPLAIN ANALYZE output
+	regionCount := e.ctx.GetSessionVars().StmtCtx.GetRegionCount()
+	if regionCount > 0 {
+		buf.WriteString(fmt.Sprintf("region_count:%d ", regionCount))
+	}
 	return nil
 }
 

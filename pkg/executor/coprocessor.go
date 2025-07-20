@@ -250,7 +250,28 @@ func (h *CoprocessorDAGHandler) buildStreamResponse(chunk *tipb.Chunk) *coproces
 	if err != nil {
 		resp.OtherError = err.Error()
 	}
+	
+	// Count regions involved in this request
+	if regionCount := countRegionsInRequest(req); regionCount > 0 {
+		metrics.QueryRegionCountHistogram.WithLabelValues(req.StoreType.Name()).Observe(float64(regionCount))
+		if vars.StmtCtx != nil {
+			vars.StmtCtx.AddRegionCount(regionCount)
+		}
+	}
+	
 	return resp
+	}
+	
+	// countRegionsInRequest counts the number of regions involved in a coprocessor request
+	func countRegionsInRequest(req *kv.Request) int {
+	if len(req.KeyRanges) == 0 {
+		return 0
+	}
+	// Each key range may span multiple regions
+	// For now, we count conservatively - each key range is at least one region
+	// A more accurate implementation would need to use region cache to calculate
+	// exact region count, but this is good enough for a first implementation
+	return len(req.KeyRanges)
 }
 
 func (*CoprocessorDAGHandler) buildErrorResponse(err error) *coprocessor.Response {
