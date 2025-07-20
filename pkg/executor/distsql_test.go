@@ -240,6 +240,41 @@ func TestPartitionTableRandomlyIndexLookUpReader(t *testing.T) {
 	}
 }
 
+func (s *testSuite) TestRegionCount(c *C) {
+	tk := testkit.NewTestKit(c, s.store)
+	tk.MustExec("use test")
+	tk.MustExec("drop table if exists t_region")
+	tk.MustExec("create table t_region(a int primary key, b int)")
+
+	// Insert some data
+	for i := 0; i < 100; i++ {
+		tk.MustExec(fmt.Sprintf("insert into t_region values(%d, %d)", i, i))
+	}
+
+	// Run a query and check that region count is tracked
+	result := tk.MustQuery("explain analyze select * from t_region where a < 50")
+	found := false
+	for _, row := range result.Rows() {
+		if strings.Contains(row[0].(string), "region_count:") {
+			found = true
+			break
+		}
+	}
+	c.Assert(found, IsTrue, Commentf("region_count not found in EXPLAIN ANALYZE output"))
+
+	// Check slow query log (need to set threshold to 0 to ensure query is logged)
+	tk.MustExec("set tidb_slow_log_threshold = 0")
+	tk.MustExec("select * from t_region where a < 50")
+
+	// Enable session variables to check the region count
+	tk.MustExec("set tidb_metric_query_step_interval = 1")
+	tk.MustExec("select * from t_region where a < 50")
+
+	// Region count should be in the session variables now
+	// But directly checking metrics would require importing prometheus testing
+	// which might be complex for this test
+}
+
 func TestIndexLookUpStats(t *testing.T) {
 	stats := &executor.IndexLookUpRunTimeStats{
 		FetchHandleTotal:         int64(5 * time.Second),

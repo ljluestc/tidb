@@ -30,6 +30,9 @@ var (
 	// PanicCounter measures the count of panics.
 	PanicCounter *prometheus.CounterVec
 
+	// QueryRegionCountTotal measures the number of regions accessed per query.
+	QueryRegionCountTotal *prometheus.CounterVec
+
 	// MemoryUsage measures the usage gauge of memory.
 	MemoryUsage *prometheus.GaugeVec
 )
@@ -79,7 +82,7 @@ func init() {
 func InitMetrics() {
 	InitBindInfoMetrics()
 	InitDDLMetrics()
-	InitDistSQLMetrics()
+	InitDistSQLMetrics(nil)
 	InitDomainMetrics()
 	InitExecutorMetrics()
 	InitGCWorkerMetrics()
@@ -109,15 +112,24 @@ func InitMetrics() {
 			Name:      "panic_total",
 			Help:      "Counter of panic.",
 		}, []string{LblType})
-		
-		// QueryRegionCountHistogram records the number of regions accessed per query
-		var QueryRegionCountHistogram = prometheus.NewHistogramVec(
+
+	// QueryRegionCountTotal measures the number of regions accessed per query.
+	QueryRegionCountTotal = metricscommon.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "tidb",
+			Subsystem: "query",
+			Name:      "region_count_total",
+			Help:      "Total number of regions accessed by different types of queries",
+		}, []string{"type"})
+
+	// QueryRegionCountHistogram records the number of regions accessed per query
+	var _ = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: "tidb",
 			Subsystem: "query",
 			Name:      "region_count",
 			Help:      "Number of regions accessed per query",
-			Buckets:   exponentialBuckets(1, 2, 12),
+			Buckets:   prometheus.ExponentialBuckets(1, 2, 12),
 		}, []string{"type"})
 
 	MemoryUsage = metricscommon.NewGaugeVec(
@@ -299,6 +311,7 @@ func RegisterMetrics() {
 	prometheus.MustRegister(GlobalSortUploadWorkerCount)
 	prometheus.MustRegister(AddIndexScanRate)
 	prometheus.MustRegister(RetryableErrorCount)
+	prometheus.MustRegister(QueryRegionCountTotal)
 
 	prometheus.MustRegister(InfoSchemaV2CacheCounter)
 	prometheus.MustRegister(InfoSchemaV2CacheMemUsage)

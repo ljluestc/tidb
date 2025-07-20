@@ -305,6 +305,11 @@ func (s *session) cleanRetryInfo() {
 		return
 	}
 
+			// Add region count to slow query log
+			if s.StmtCtx != nil && s.StmtCtx.RegionCount > 0 {
+		info.RegionCount = s.StmtCtx.RegionCount
+			}
+
 	retryInfo := s.sessionVars.RetryInfo
 	defer retryInfo.Clean()
 	if len(retryInfo.DroppedPreparedStmtIDs) == 0 {
@@ -2559,6 +2564,20 @@ func (s *session) Txn(active bool) (kv.Transaction, error) {
 	_, err := sessiontxn.GetTxnManager(s).ActivateTxn()
 	s.SetMemoryFootprintChangeHook()
 	return &s.txn, err
+}
+
+// AddRegionCount adds the number of regions accessed to the statement context
+func (sc *StmtContext) AddRegionCount(count int) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.mu.execDetails.RegionCount += count
+}
+
+// GetRegionCount gets the total number of regions accessed during query execution
+func (sc *StmtContext) GetRegionCount() int {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.mu.execDetails.RegionCount
 }
 
 // AddRegionCount adds the number of regions accessed to the statement context

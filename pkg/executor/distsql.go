@@ -259,6 +259,27 @@ func (e *IndexReaderExecutor) Close() (err error) {
 	if e.indexUsageReporter != nil {
 		e.indexUsageReporter.ReportCopIndexUsageForTable(e.table, e.index.ID, e.plans[0].ID())
 	}
+	
+	// Record region count for metrics after each query is processed
+	if w.finished && w.ctx != nil && w.ctx.GetSessionVars() != nil && w.ctx.GetSessionVars().StmtCtx != nil {
+		regionCount := w.ctx.GetSessionVars().StmtCtx.GetRegionCount()
+		if regionCount > 0 {
+			stmtType := "general" // Default type
+			if w.rootPlan != nil {
+				switch w.rootPlan.(type) {
+				case *plannercore.PhysicalTableReader:
+					stmtType = "select"
+				case *plannercore.Insert:
+					stmtType = "insert"
+				case *plannercore.Update:
+					stmtType = "update"
+				case *plannercore.Delete:
+					stmtType = "delete"
+				}
+			}
+			metrics.QueryRegionCountHistogram.WithLabelValues(stmtType).Observe(float64(regionCount))
+		}
+	}
 
 	if e.result != nil {
 		err = e.result.Close()

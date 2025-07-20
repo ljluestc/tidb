@@ -28,10 +28,11 @@ var (
 	DistSQLCoprCacheCounter         *prometheus.CounterVec
 	DistSQLCoprClosestReadCounter   *prometheus.CounterVec
 	DistSQLCoprRespBodySize         *prometheus.HistogramVec
+	QueryRegionCountHistogram       *prometheus.HistogramVec
 )
 
 // InitDistSQLMetrics initializes distsql metrics.
-func InitDistSQLMetrics() {
+func InitDistSQLMetrics(QueryRegionCountHistogram prometheus.Collector) {
 	DistSQLQueryHistogram = metricscommon.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: "tidb",
@@ -92,4 +93,37 @@ func InitDistSQLMetrics() {
 			Help:      "copr task response data size in bytes.",
 			Buckets:   prometheus.ExponentialBuckets(1, 2, 10),
 		}, []string{LblStore})
+
+	// QueryRegionCountHistogram records the region count for each query
+	QueryRegionCountHistogram = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: "tidb",
+			Subsystem: "distsql",
+			Name:      "query_region_count",
+			Help:      "Histogram of region count for each query.",
+			Buckets:   prometheus.ExponentialBuckets(1, 2, 10),
+		})
+
+	// Register the histogram with Prometheus
+	prometheus.MustRegister(QueryRegionCountHistogram)
+}
+
+// InitDistSQLMetrics initializes the metrics for distsql package.
+func InitDistSQLMetrics(registry *prometheus.Registry) {
+	if registry == nil {
+		registry = prometheus.DefaultRegisterer.(*prometheus.Registry)
+	}
+
+	registry.MustRegister(DistSQLQueryHistogram)
+	registry.MustRegister(DistSQLScanKeysHistogram)
+	registry.MustRegister(DistSQLScanKeysPartialHistogram)
+	registry.MustRegister(DistSQLPartialCountHistogram)
+	registry.MustRegister(DistSQLQuerySuccCounter)
+	registry.MustRegister(DistSQLQueryFailedCounter)
+	registry.MustRegister(DistSQLExecErrorCounter)
+	registry.MustRegister(DistSQLLockKeysHistogram)
+	registry.MustRegister(DistSQLLocalReadHistogram)
+	registry.MustRegister(DistSQLCoprCacheCounter)
+	registry.MustRegister(DistSQLCoprClosestReadCounter)
+	registry.MustRegister(DistSQLStoreRespCounters)
 }

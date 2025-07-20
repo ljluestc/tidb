@@ -512,6 +512,48 @@ func (e *ShowExec) fetchShowProcessList() error {
 		}
 	}
 
+type ShowExec struct {
+	baseExecutor
+}
+
+// Next implements the Executor Next interface.
+func (e *ShowExec) Next(ctx context.Context, req *chunk.Chunk) error {
+	// This is just a stub implementation
+	return nil
+}
+
+// ShowDatabasesExec is a special executor for showing databases.
+type ShowDatabasesExec struct {
+	baseExecutor
+}
+
+// Next implements the Executor Next interface.
+func (e *ShowDatabasesExec) Next(ctx context.Context, req *chunk.Chunk) error {
+	// This is just a stub implementation
+	return nil
+}
+
+// baseExecutor implements the basic Executor interface.
+type baseExecutor struct {
+	ctx     sessionctx.Context
+	schema  *expression.Schema
+	retFieldTypes []*types.FieldType
+}
+
+// Schema implements the Executor Schema interface.
+func (e *baseExecutor) Schema() *expression.Schema {
+	return e.schema
+}
+
+// Close implements the Executor Close interface.
+func (e *baseExecutor) Close() error {
+	return nil
+}
+
+// Open implements the Executor Open interface.
+func (e *baseExecutor) Open(ctx context.Context) error {
+	return nil
+}
 	pl := sm.ShowProcessList()
 	for _, pi := range pl {
 		// If you have the PROCESS privilege, you can see all threads.

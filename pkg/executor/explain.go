@@ -16,6 +16,7 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -65,7 +66,7 @@ func (e *ExplainExec) Close() error {
 		// Open(), but Next() is not called.
 		return exec.Close(e.analyzeExec)
 	}
-	
+
 	// Add region count information to EXPLAIN ANALYZE output
 	regionCount := e.ctx.GetSessionVars().StmtCtx.GetRegionCount()
 	if regionCount > 0 {
@@ -94,6 +95,15 @@ func (e *ExplainExec) Next(ctx context.Context, req *chunk.Chunk) error {
 		for j := range e.rows[i] {
 			req.AppendString(j, e.rows[i][j])
 		}
+	}
+	if regionCount > 0 {
+		execInfo += fmt.Sprintf(", region_count: %d", regionCount)
+	}
+
+	// Add region count information to EXPLAIN ANALYZE output
+	regionCount := e.ctx.GetSessionVars().StmtCtx.RuntimeStatsColl.ExecDetails.RegionCount
+	if regionCount > 0 {
+		buf.WriteString(fmt.Sprintf("region_count:%d ", regionCount))
 	}
 	e.cursor += numCurRows
 	return nil

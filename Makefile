@@ -769,6 +769,22 @@ bazel_importintotest2: failpoint-enable bazel_ci_simple_prepare
 	bazel $(BAZEL_GLOBAL_CONFIG) test $(BAZEL_CMD_CONFIG) --test_output=all --test_arg=-with-real-tikv --define gotags=$(REAL_TIKV_TEST_TAGS) \
 		-- //tests/realtikvtest/importintotest2/...
 
+# Build tidb-server binary for tests
+bin/tidb-server:
+	@echo "Building tidb-server binary for tests..."
+	@mkdir -p bin
+	$(GO) build -o bin/tidb-server cmd/tidb-server/main.go
+
+# Update Go dependencies
+go.mod.tidy:
+	@echo "Running go mod tidy..."
+	@go mod tidy
+	@go mod download
+
+# Run tests after building tidb-server
+test: bin/tidb-server
+	$(GO) test ./...
+
 # on timeout, bazel won't print log sometimes, so we use --test_output=all to print log always
 .PHONY: bazel_importintotest3
 bazel_importintotest3: failpoint-enable bazel_ci_simple_prepare
