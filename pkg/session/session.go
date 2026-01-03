@@ -373,7 +373,6 @@ func (s *session) Status() uint16 {
 }
 
 func (s *session) LastInsertID() uint64 {
-	fmt.Printf("DEBUG: session.LastInsertID called. PrevLastInsertID=%d, InsertID=%d\n", s.sessionVars.StmtCtx.LastInsertID, s.sessionVars.StmtCtx.InsertID)
 	if s.sessionVars.StmtCtx.LastInsertID > 0 {
 		return s.sessionVars.StmtCtx.LastInsertID
 	}
