@@ -890,11 +890,6 @@ func (e *InsertValues) lazyAdjustAutoIncrementDatum(ctx context.Context, rows []
 			if e.handleErr(col, &autoDatum, cnt, err) != nil {
 				return nil, err
 			}
-			// It's compatible with mysql setting the first allocated autoID to lastInsertID.
-			// Cause autoID may be specified by user, judge only the first row is not suitable.
-			if e.lastInsertID == 0 {
-				e.lastInsertID = uint64(minv)
-			}
 			// Assign autoIDs to rows.
 			for j := range cnt {
 				offset := j + start
@@ -904,6 +899,12 @@ func (e *InsertValues) lazyAdjustAutoIncrementDatum(ctx context.Context, rows []
 					return nil, err
 				}
 				retryInfo.AddAutoIncrementID(id)
+			}
+			// It's compatible with mysql setting the first allocated autoID to lastInsertID.
+			// Cause autoID may be specified by user, judge only the first row is not suitable.
+			if e.lastInsertID == 0 {
+				// Use the value after casting to ensure it reflects what's actually inserted (e.g. truncated value).
+				e.lastInsertID = rows[start][idx].GetUint64()
 			}
 			continue
 		}
@@ -962,16 +963,16 @@ func (e *InsertValues) adjustAutoIncrementDatum(
 		if e.handleErr(c, &d, 0, err) != nil {
 			return types.Datum{}, err
 		}
-		// It's compatible with mysql setting the first allocated autoID to lastInsertID.
-		// Cause autoID may be specified by user, judge only the first row is not suitable.
-		if e.lastInsertID == 0 {
-			e.lastInsertID = uint64(recordID)
-		}
 	}
 
 	err = setDatumAutoIDAndCast(e.Ctx(), &d, recordID, c)
 	if err != nil {
 		return types.Datum{}, err
+	}
+	// It's compatible with mysql setting the first allocated autoID to lastInsertID.
+	// Cause autoID may be specified by user, judge only the first row is not suitable.
+	if e.lastInsertID == 0 {
+		e.lastInsertID = d.GetUint64()
 	}
 	retryInfo.AddAutoIncrementID(recordID)
 	return d, nil
