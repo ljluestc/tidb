@@ -1095,3 +1095,14 @@ select * from (t3 cross join t4) natural join t1;
 select * from (t1 join t2 on t1.b=t2.b) natural join (t3 natural join t4);
 --error 1052
 select * from (t3 natural join t4) natural join (t1 join t2 on t1.b=t2.b);
+
+# TestIssue63932
+## INNER JOIN and LEFT/RIGHT JOIN INTERSECT must agree when
+## DATE_FORMAT appears in the join condition with a DECIMAL UNSIGNED column.
+drop table if exists t0, t1;
+create table t0(c0 DECIMAL UNSIGNED);
+create table t1(c1 DECIMAL UNSIGNED);
+replace into t0(c0) values (220788324);
+insert ignore into t1 values (-1);
+select distinct c0 from t1 inner join t0 on t1.c1>=date_format(t1.c1, 0);
+(select c0 from t1 left join t0 on t1.c1>=date_format(t1.c1, 0)) intersect (select c0 from t1 right join t0 on t1.c1>=date_format(t1.c1, 0));

@@ -1593,3 +1593,14 @@ select * from (t1 join t2 on t1.b=t2.b) natural join (t3 natural join t4);
 Error 1052 (23000): Column 'b' in from clause is ambiguous
 select * from (t3 natural join t4) natural join (t1 join t2 on t1.b=t2.b);
 Error 1052 (23000): Column 'b' in from clause is ambiguous
+drop table if exists t0, t1;
+create table t0(c0 DECIMAL UNSIGNED);
+create table t1(c1 DECIMAL UNSIGNED);
+replace into t0(c0) values (220788324);
+insert ignore into t1 values (-1);
+select distinct c0 from t1 inner join t0 on t1.c1>=date_format(t1.c1, 0);
+c0
+220788324
+(select c0 from t1 left join t0 on t1.c1>=date_format(t1.c1, 0)) intersect (select c0 from t1 right join t0 on t1.c1>=date_format(t1.c1, 0));
+c0
+220788324
