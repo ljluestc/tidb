@@ -274,3 +274,14 @@ SHOW ERRORS;
 -- error 1064
 PREPARE stmt FROM 'VALUES ( ("foo"), ROW("bar") )';
 SHOW ERRORS;
+
+# TestIssue63900
+## ELT in WHERE clause of a prepared statement with NULL param should
+## return the same result as the equivalent literal query.
+set tidb_enable_prepared_plan_cache=1;
+SELECT 1 WHERE ELT(1, 1, 'a', NULL);
+SET @d = 'a';
+SET @e = NULL;
+PREPARE prepare_query FROM 'SELECT 1 WHERE ELT(1, 1, ?, ?)';
+EXECUTE prepare_query USING @d, @e;
+set tidb_enable_prepared_plan_cache=default;
