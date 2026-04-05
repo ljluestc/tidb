@@ -996,8 +996,10 @@ func (c *unaryMinusFunctionClass) handleIntOverflow(ctx EvalContext, arg *Consta
 	return false
 }
 
-// typeInfer infers unaryMinus function return type. when the arg is an int constant and overflow,
-// typerInfer will infers the return type as types.ETDecimal, not types.ETInt.
+// typeInfer infers unaryMinus function return type. When the arg is an int constant and overflows,
+// typeInfer will infer the return type as types.ETDecimal, not types.ETInt.
+// For integer parameter markers, use decimal as well because the runtime value can change across executions
+// (including plan cache reuse) and may hit MIN_INT64/large unsigned overflow cases.
 func (c *unaryMinusFunctionClass) typeInfer(ctx EvalContext, argExpr Expression) (types.EvalType, bool) {
 	tp := argExpr.GetType(ctx).EvalType()
 	if tp != types.ETInt && tp != types.ETDecimal {
@@ -1007,7 +1009,11 @@ func (c *unaryMinusFunctionClass) typeInfer(ctx EvalContext, argExpr Expression)
 	overflow := false
 	// TODO: Handle float overflow.
 	if arg, ok := argExpr.(*Constant); ok && tp == types.ETInt {
-		overflow = c.handleIntOverflow(ctx, arg)
+		if arg.ParamMarker != nil {
+			overflow = true
+		} else {
+			overflow = c.handleIntOverflow(ctx, arg)
+		}
 		if overflow {
 			tp = types.ETDecimal
 		}
@@ -1075,7 +1081,13 @@ func (c *unaryMinusFunctionClass) getFunction(ctx BuildContext, args []Expressio
 			sig.setPbCode(tipb.ScalarFuncSig_UnaryMinusReal)
 		}
 	}
-	bf.tp.SetFlenUnderLimit(argExprTp.GetFlen() + 1)
+	// For int overflow cases (including parameter markers), use MaxIntWidth + 1 as flen
+	// to ensure CEIL/FLOOR use decimal type as well.
+	if intOverflow {
+		bf.tp.SetFlenUnderLimit(mysql.MaxIntWidth + 1)
+	} else {
+		bf.tp.SetFlenUnderLimit(argExprTp.GetFlen() + 1)
+	}
 	return sig, err
 }
 

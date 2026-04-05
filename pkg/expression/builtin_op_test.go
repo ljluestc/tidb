@@ -65,6 +65,27 @@ func TestUnary(t *testing.T) {
 
 	_, err := funcs[ast.UnaryMinus].getFunction(ctx, []Expression{NewZero()})
 	require.NoError(t, err)
+
+	// Test parameter marker with MinInt64 value (issue #63899)
+	// For parameter markers, we should use decimal type to handle potential overflow
+	ctx.GetSessionVars().PlanCacheParams.Append(types.NewIntDatum(math.MinInt64))
+	param := &Constant{ParamMarker: &ParamMarker{order: 0}, RetType: types.NewFieldType(mysql.TypeLonglong)}
+	negExpr, err := newFunctionForTest(ctx, ast.UnaryMinus, param)
+	require.NoError(t, err)
+	// Verify that the function signature is decimal, not int
+	_, isDecimalSig := negExpr.(*ScalarFunction).Function.(*builtinUnaryMinusDecimalSig)
+	require.True(t, isDecimalSig, "unary minus on int param marker should use decimal signature")
+	require.Greater(t, negExpr.GetType(ctx).GetFlen()-negExpr.GetType(ctx).GetDecimal(), mysql.MaxIntWidth-2)
+	negRes, err := negExpr.Eval(ctx, chunk.Row{})
+	require.NoError(t, err)
+	require.Equal(t, "9223372036854775808", negRes.GetMysqlDecimal().String())
+
+	// Test CEILING on the negated param marker
+	ceilExpr, err := newFunctionForTest(ctx, ast.Ceil, negExpr)
+	require.NoError(t, err)
+	ceilRes, err := ceilExpr.Eval(ctx, chunk.Row{})
+	require.NoError(t, err)
+	require.Equal(t, "9223372036854775808", ceilRes.GetMysqlDecimal().String())
 }
 
 func TestLogicAnd(t *testing.T) {
