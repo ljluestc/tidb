@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"hash/crc64"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -722,6 +724,8 @@ func minEndKey(rangeEndKey kv.Key, regionEndKey []byte) []byte {
 
 const rowsPerChunk = 64
 
+var checksumCrc64Table = crc64.MakeTable(crc64.ECMA)
+
 func appendRow(chunks []tipb.Chunk, data []byte, rowCnt int) []tipb.Chunk {
 	if rowCnt%rowsPerChunk == 0 {
 		chunks = append(chunks, tipb.Chunk{})
@@ -747,14 +751,44 @@ func fieldTypeFromPBColumn(col *tipb.ColumnInfo) *types.FieldType {
 
 // handleCopChecksumRequest handles coprocessor check sum request.
 func handleCopChecksumRequest(dbReader *dbreader.DBReader, req *coprocessor.Request) *coprocessor.Response {
-	resp := &tipb.ChecksumResponse{
-		Checksum:   1,
-		TotalKvs:   1,
-		TotalBytes: 1,
+	checksumReq := new(tipb.ChecksumRequest)
+	if err := proto.Unmarshal(req.Data, checksumReq); err != nil {
+		return &coprocessor.Response{OtherError: err.Error()}
+	}
+	if checksumReq.Algorithm != tipb.ChecksumAlgorithm_Crc64_Xor {
+		return &coprocessor.Response{OtherError: fmt.Sprintf("unsupported checksum algorithm %s", checksumReq.Algorithm.String())}
+	}
+	ranges, err := extractKVRanges(dbReader.StartKey, dbReader.EndKey, req.Ranges, false)
+	if err != nil {
+		return &coprocessor.Response{OtherError: err.Error()}
+	}
+	resp := &tipb.ChecksumResponse{}
+	processor := &checksumProcessor{resp: resp}
+	for _, ran := range ranges {
+		if err := dbReader.Scan(ran.StartKey, ran.EndKey, math.MaxInt64, req.StartTs, processor); err != nil {
+			return &coprocessor.Response{OtherError: err.Error()}
+		}
 	}
 	data, err := resp.Marshal()
 	if err != nil {
 		return &coprocessor.Response{OtherError: fmt.Sprintf("marshal checksum response error: %v", err)}
 	}
 	return &coprocessor.Response{Data: data}
+}
+
+type checksumProcessor struct {
+	resp *tipb.ChecksumResponse
+}
+
+func (p *checksumProcessor) Process(key, value []byte, _ uint64) error {
+	checksum := crc64.Update(0, checksumCrc64Table, key)
+	checksum = crc64.Update(checksum, checksumCrc64Table, value)
+	p.resp.Checksum ^= checksum
+	p.resp.TotalKvs++
+	p.resp.TotalBytes += uint64(len(key) + len(value))
+	return nil
+}
+
+func (*checksumProcessor) SkipValue() bool {
+	return false
 }
