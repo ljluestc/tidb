@@ -67,6 +67,12 @@ if carry > 0 {
 - [ ] Breaking change
 
 ## How Has This Been Tested?
+### Repository Prep
+- ⚠️ `make bazel_prepare` was attempted per TiDB policy and failed in this local environment due Bazel JVM native-thread OOM/resource limits.
+  ```bash
+  make bazel_prepare
+  ```
+  Result: **FAILED (environment resource limit)** ✗
 
 ### Unit Tests
 - ✅ `TestTopNPushDown` passes with failpoint
@@ -77,7 +83,11 @@ if carry > 0 {
 
 ### Code Quality
 - ✅ Changes follow TiDB coding conventions
-- ✅ No new lint errors introduced (pre-existing lint issues in other files)
+- ✅ `make lint` passes on this branch
+  ```bash
+  make lint
+  ```
+  Result: **PASS** ✓
 - ✅ Code is self-documenting with clear variable names and logic flow
 
 ### Test Coverage
@@ -146,6 +156,7 @@ If regressions occur:
 - [x] Code follows TiDB conventions and style guide
 - [x] No new lint errors introduced
 - [x] Unit tests pass with failpoint
+- [ ] `make bazel_prepare` passes in local environment
 - [x] TestTopNPushDown expectations updated
 - [x] Overflow protection implemented correctly
 - [x] LogicalApply edge case handled
