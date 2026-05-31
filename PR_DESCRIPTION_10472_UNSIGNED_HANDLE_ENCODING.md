@@ -2,26 +2,28 @@
 Issue Number: close #10472
 
 Problem Summary:
-TiDB currently encodes signed and unsigned integer row handles through the same signed path (`codec.EncodeInt` on `int64`) when building record keys. For unsigned handles, encoded key order may not match unsigned numeric order in boundary cases, which makes range semantics and planner assumptions harder to reason about.
+When rebuilding cached `PointGet` / `BatchPointGet` plans for unsigned PK handles, the rebuild path converted handle parameters with `Datum.ToInt64()`. For values beyond `math.MaxInt64` (for example `18446744073709551615`), this may fail rebuild and prevent stable cache reuse.
 
 ### What changed and how does it work?
-This PR description documents a feature direction to support dedicated unsigned-handle encoding for record keys so key order is monotonic with unsigned handle order.
-
-Planned behavior:
-1. Keep existing signed-handle encoding behavior unchanged.
-2. Introduce an unsigned-order-preserving encoding path for unsigned handles.
-3. Ensure encode/decode and comparison behavior are symmetric and monotonic for both signed and unsigned handles.
-4. Cover signed/unsigned boundary cases with focused regression tests when code implementation is included.
+1. In `pkg/planner/core/plan_cache_rebuild.go`, add `datumToIntHandleValue(...)`:
+   - unsigned handle type: use `Datum.GetInt64()` (bit-preserving)
+   - signed handle type: keep `Datum.ToInt64(...)` behavior
+2. Use the real PK unsigned flag (`mysql.HasUnsignedFlag(pkColInfo.GetFlag())`) when deriving `unsignedIntHandle` in point/batch point-get rebuild safety checks.
+3. Extend regression coverage in:
+   - `tests/integrationtest/t/planner/core/tests/prepare/prepare.test`
+   - `tests/integrationtest/r/planner/core/tests/prepare/prepare.result`
+   by validating repeated point get and batch point get cache behavior for max `BIGINT UNSIGNED` handle values.
 
 ### Check List
 Tests <!-- At least one of them must be included. -->
-
-- [ ] Unit test
-- [ ] Integration test
+- [x] Unit test
+- [x] Integration test
 - [ ] Manual test (add detailed scripts or steps below)
-- [x] No need to test
-  > - [x] I checked and no code files have been changed.
-  > - This branch currently adds only a PR description markdown file.
+- [ ] No need to test
+
+Executed test commands:
+1. `GOFLAGS='-p=1' go test ./pkg/planner/core/casetest/plancache -run TestPlanCacheClone -count=1 -tags=intest,deadlock`
+2. `cd tests/integrationtest && GOFLAGS='-p=1' ./run-tests.sh -r planner/core/tests/prepare/prepare`
 
 Side effects
 

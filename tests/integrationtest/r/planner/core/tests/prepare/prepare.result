@@ -527,16 +527,18 @@ select @@last_plan_from_cache;
 set tidb_enable_prepared_plan_cache=1;
 drop table if exists t;
 create table t(a bigint unsigned primary key);
-insert into t values(18446744073709551615);
+insert into t values(1),(18446744073709551615);
 prepare stmt from 'select a from t where a=?';
 set @p = 1;
 execute stmt using @p;
 a
+1
 select @@last_plan_from_cache;
 @@last_plan_from_cache
 0
 execute stmt using @p;
 a
+1
 select @@last_plan_from_cache;
 @@last_plan_from_cache
 1
@@ -547,6 +549,28 @@ a
 select @@last_plan_from_cache;
 @@last_plan_from_cache
 0
+execute stmt using @p;
+a
+18446744073709551615
+select @@last_plan_from_cache;
+@@last_plan_from_cache
+1
+prepare stmt_in from 'select a from t where a in (?, ?)';
+set @p0 = 1, @p1 = 18446744073709551615;
+execute stmt_in using @p0, @p1;
+a
+1
+18446744073709551615
+select @@last_plan_from_cache;
+@@last_plan_from_cache
+0
+execute stmt_in using @p0, @p1;
+a
+1
+18446744073709551615
+select @@last_plan_from_cache;
+@@last_plan_from_cache
+1
 set tidb_enable_prepared_plan_cache=1;
 drop table if exists t;
 create table t(pk int primary key);

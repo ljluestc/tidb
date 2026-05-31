@@ -18,6 +18,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/planner/core/base"
 	"github.com/pingcap/tidb/pkg/planner/core/operator/physicalop"
 	"github.com/pingcap/tidb/pkg/planner/util/fixcontrol"
@@ -180,6 +181,13 @@ func convertConstant2Datum(ctx base.PlanContext, con *expression.Constant, targe
 	return &dVal, nil
 }
 
+func datumToIntHandleValue(dVal *types.Datum, handleType *types.FieldType, tc types.Context) (int64, error) {
+	if mysql.HasUnsignedFlag(handleType.GetFlag()) {
+		return dVal.GetInt64(), nil
+	}
+	return dVal.ToInt64(tc)
+}
+
 func buildRangeForTableScan(sctx base.PlanContext, ts *physicalop.PhysicalTableScan) (err error) {
 	if ts.Table.IsCommonHandle {
 		pk := tables.FindPrimaryIndex(ts.Table)
@@ -278,9 +286,7 @@ func buildRangesForPointGet(sctx base.PlanContext, x *physicalop.PointGetPlan) (
 			if x.TblInfo.PKIsHandle {
 				if pkColInfo := x.TblInfo.GetPkColInfo(); pkColInfo != nil {
 					pkCol = expression.ColInfo2Col(x.Schema().Columns, pkColInfo)
-				}
-				if !x.TblInfo.IsCommonHandle {
-					unsignedIntHandle = true
+					unsignedIntHandle = mysql.HasUnsignedFlag(pkColInfo.GetFlag())
 				}
 			}
 			if pkCol != nil {
@@ -304,7 +310,7 @@ func buildRangesForPointGet(sctx base.PlanContext, x *physicalop.PointGetPlan) (
 		if err != nil {
 			return err
 		}
-		iv, err := dVal.ToInt64(sctx.GetSessionVars().StmtCtx.TypeCtx())
+		iv, err := datumToIntHandleValue(dVal, x.HandleFieldType, sctx.GetSessionVars().StmtCtx.TypeCtx())
 		if err != nil {
 			return err
 		}
@@ -346,9 +352,7 @@ func buildRangesForBatchGet(sctx base.PlanContext, x *physicalop.BatchPointGetPl
 			if x.TblInfo.PKIsHandle {
 				if pkColInfo := x.TblInfo.GetPkColInfo(); pkColInfo != nil {
 					pkCol = expression.ColInfo2Col(x.Schema().Columns, pkColInfo)
-				}
-				if !x.TblInfo.IsCommonHandle {
-					unsignedIntHandle = true
+					unsignedIntHandle = mysql.HasUnsignedFlag(pkColInfo.GetFlag())
 				}
 			}
 			if pkCol != nil {
@@ -379,7 +383,7 @@ func buildRangesForBatchGet(sctx base.PlanContext, x *physicalop.BatchPointGetPl
 				if err != nil {
 					return err
 				}
-				iv, err := dVal.ToInt64(sctx.GetSessionVars().StmtCtx.TypeCtx())
+				iv, err := datumToIntHandleValue(dVal, x.HandleType, sctx.GetSessionVars().StmtCtx.TypeCtx())
 				if err != nil {
 					return err
 				}

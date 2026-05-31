@@ -331,7 +331,7 @@ select @@last_plan_from_cache;
 set tidb_enable_prepared_plan_cache=1;
 drop table if exists t;
 create table t(a bigint unsigned primary key);
-insert into t values(18446744073709551615);
+insert into t values(1),(18446744073709551615);
 prepare stmt from 'select a from t where a=?';
 set @p = 1;
 execute stmt using @p;
@@ -340,6 +340,16 @@ execute stmt using @p;
 select @@last_plan_from_cache;
 set @p = 18446744073709551615;
 execute stmt using @p;
+select @@last_plan_from_cache;
+execute stmt using @p;
+select @@last_plan_from_cache;
+prepare stmt_in from 'select a from t where a in (?, ?)';
+set @p0 = 1, @p1 = 18446744073709551615;
+--sorted_result
+execute stmt_in using @p0, @p1;
+select @@last_plan_from_cache;
+--sorted_result
+execute stmt_in using @p0, @p1;
 select @@last_plan_from_cache;
 
 # TestParamMarker4FastPlan
