@@ -1930,18 +1930,27 @@ func TestAddExpressionIndex(t *testing.T) {
 	require.True(t, columns[2].Hidden)
 
 	tk.MustQuery("select * from t;").Check(testkit.Rows("1 2.1"))
+	tk.MustExec("alter table t add index idx_dup((a+b));")
+	tblInfo, err = dom.InfoSchema().TableByName(context.Background(), ast.NewCIStr("test"), ast.NewCIStr("t"))
+	require.NoError(t, err)
+	columns = tblInfo.Meta().Columns
+	require.Equal(t, 3, len(columns))
 
 	tk.MustExec("alter table t add index idx_multi((a+b),(a+1), b);")
 	tblInfo, err = dom.InfoSchema().TableByName(context.Background(), ast.NewCIStr("test"), ast.NewCIStr("t"))
 	require.NoError(t, err)
 	columns = tblInfo.Meta().Columns
-	require.Equal(t, 5, len(columns))
+	require.Equal(t, 4, len(columns))
 	require.True(t, columns[3].Hidden)
-	require.True(t, columns[4].Hidden)
 
 	tk.MustQuery("select * from t;").Check(testkit.Rows("1 2.1"))
 
 	tk.MustExec("alter table t drop index idx;")
+	tblInfo, err = dom.InfoSchema().TableByName(context.Background(), ast.NewCIStr("test"), ast.NewCIStr("t"))
+	require.NoError(t, err)
+	columns = tblInfo.Meta().Columns
+	require.Equal(t, 4, len(columns))
+	tk.MustExec("alter table t drop index idx_dup;")
 	tblInfo, err = dom.InfoSchema().TableByName(context.Background(), ast.NewCIStr("test"), ast.NewCIStr("t"))
 	require.NoError(t, err)
 	columns = tblInfo.Meta().Columns

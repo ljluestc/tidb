@@ -1580,13 +1580,6 @@ func BuildHiddenColumnInfo(ctx *metabuild.Context, indexPartSpecifications []*as
 		if idxPart.Expr == nil {
 			continue
 		}
-		idxPart.Column = &ast.ColumnName{Name: ast.NewCIStr(fmt.Sprintf("%s_%s_%d", expressionIndexPrefix, indexName, i))}
-		// Check whether the hidden columns have existed.
-		col := table.FindCol(existCols, idxPart.Column.Name.L)
-		if col != nil {
-			// TODO: Use expression index related error.
-			return nil, infoschema.ErrColumnExists.GenWithStackByArgs(col.Name.String())
-		}
 		idxPart.Length = types.UnspecifiedLength
 		// The index part is an expression, prepare a hidden column for it.
 
@@ -1614,7 +1607,6 @@ func BuildHiddenColumnInfo(ctx *metabuild.Context, indexPartSpecifications []*as
 		}
 
 		colInfo := &model.ColumnInfo{
-			Name:                idxPart.Column.Name,
 			GeneratedExprString: sb.String(),
 			GeneratedStored:     false,
 			Version:             model.CurrLatestColumnInfoVersion,
@@ -1649,10 +1641,54 @@ func BuildHiddenColumnInfo(ctx *metabuild.Context, indexPartSpecifications []*as
 				return nil, errors.Trace(err)
 			}
 		}
+		if reusable := findReusableHiddenColumnForExpressionIndex(tblInfo, colInfo); reusable != nil {
+			idxPart.Column = &ast.ColumnName{Name: reusable.Name}
+			idxPart.Expr = nil
+			continue
+		}
+		idxPart.Column = &ast.ColumnName{Name: ast.NewCIStr(fmt.Sprintf("%s_%s_%d", expressionIndexPrefix, indexName, i))}
+		// Check whether the hidden columns have existed.
+		col := table.FindCol(existCols, idxPart.Column.Name.L)
+		if col != nil {
+			// TODO: Use expression index related error.
+			return nil, infoschema.ErrColumnExists.GenWithStackByArgs(col.Name.String())
+		}
+		colInfo.Name = idxPart.Column.Name
 		idxPart.Expr = nil
 		hiddenCols = append(hiddenCols, colInfo)
 	}
 	return hiddenCols, nil
+}
+
+func findReusableHiddenColumnForExpressionIndex(tblInfo *model.TableInfo, colInfo *model.ColumnInfo) *model.ColumnInfo {
+	for _, existing := range tblInfo.Columns {
+		if !existing.Hidden || !existing.IsVirtualGenerated() {
+			continue
+		}
+		if existing.GeneratedExprString != colInfo.GeneratedExprString {
+			continue
+		}
+		if !existing.FieldType.Equal(&colInfo.FieldType) {
+			continue
+		}
+		if !sameColumnDependences(existing.Dependences, colInfo.Dependences) {
+			continue
+		}
+		return existing
+	}
+	return nil
+}
+
+func sameColumnDependences(lhs, rhs map[string]struct{}) bool {
+	if len(lhs) != len(rhs) {
+		return false
+	}
+	for key := range lhs {
+		if _, ok := rhs[key]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // addIndexForForeignKey uses to auto create an index for the foreign key if the table doesn't have any index cover the
