@@ -2151,12 +2151,34 @@ func onDropIndex(jobCtx *jobContext, job *model.Job) (ver int64, _ error) {
 
 // RemoveDependentHiddenColumns removes hidden columns by the indexInfo.
 func RemoveDependentHiddenColumns(tblInfo *model.TableInfo, idxInfo *model.IndexInfo) {
-	hiddenColOffs := make([]int, 0)
+	hiddenColIDToOffset := make(map[int64]int)
 	for _, indexColumn := range idxInfo.Columns {
 		col := tblInfo.Columns[indexColumn.Offset]
 		if col.Hidden {
-			hiddenColOffs = append(hiddenColOffs, col.Offset)
+			hiddenColIDToOffset[col.ID] = col.Offset
 		}
+	}
+	if len(hiddenColIDToOffset) == 0 {
+		return
+	}
+	for _, otherIdx := range tblInfo.Indices {
+		if otherIdx.ID == idxInfo.ID {
+			continue
+		}
+		for _, indexColumn := range otherIdx.Columns {
+			col := tblInfo.Columns[indexColumn.Offset]
+			if !col.Hidden {
+				continue
+			}
+			delete(hiddenColIDToOffset, col.ID)
+		}
+	}
+	hiddenColOffs := make([]int, 0, len(hiddenColIDToOffset))
+	for _, offset := range hiddenColIDToOffset {
+		hiddenColOffs = append(hiddenColOffs, offset)
+	}
+	if len(hiddenColOffs) == 0 {
+		return
 	}
 	// Sort the offset in descending order.
 	slices.SortFunc(hiddenColOffs, func(a, b int) int { return cmp.Compare(b, a) })
