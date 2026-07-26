@@ -16,6 +16,7 @@ package join
 
 import (
 	"math/rand"
+	"sync"
 	"testing"
 
 	"github.com/pingcap/tidb/pkg/domain"
@@ -27,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tidb/pkg/util/disk"
 	"github.com/pingcap/tidb/pkg/util/memory"
+	"github.com/pingcap/tidb/pkg/util/mvmap"
 	"github.com/pingcap/tidb/pkg/util/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -109,4 +111,55 @@ func genTestChunk(maxChunkSize int, numRows int, fields []*types.FieldType) *chu
 		}
 	}
 	return chk
+}
+
+func TestIndexLookupJoinTaskPoolReset(t *testing.T) {
+	outerTypes := []*types.FieldType{types.NewFieldType(mysql.TypeLong)}
+	encodedTypes := []*types.FieldType{types.NewFieldType(mysql.TypeBlob)}
+	e := &IndexLookUpJoin{}
+	e.taskPool = sync.Pool{
+		New: func() any {
+			return &lookUpJoinTask{
+				doneCh: make(chan error, 1),
+				outerResult: chunk.NewList(
+					outerTypes,
+					1,
+					4,
+				),
+				lookupMap:         mvmap.NewMVMap(),
+				encodedLookUpKeys: []*chunk.Chunk{chunk.NewChunkWithCapacity(encodedTypes, 2)},
+			}
+		},
+	}
+
+	task := e.newLookUpJoinTask(nil)
+	task.cursor = chunk.RowPtr{ChkIdx: 1, RowIdx: 2}
+	task.hasMatch = true
+	task.hasNull = true
+	task.outerMatch = [][]bool{{true, false}}
+	task.matchedInners = append(task.matchedInners, chunk.MutRowFromDatums([]types.Datum{types.NewIntDatum(1)}).ToRow())
+	task.encodedLookUpKeys = task.encodedLookUpKeys[:1]
+	task.encodedLookUpKeys[0].AppendBytes(0, []byte("stale"))
+	task.lookupMap.Put([]byte("k"), []byte("v"))
+	task.doneCh <- nil
+	outerChk := chunk.New(outerTypes, 2, 2)
+	outerChk.AppendInt64(0, 1)
+	task.outerResult.Add(outerChk)
+
+	e.recycleLookUpJoinTask(task)
+	reused := e.newLookUpJoinTask(nil)
+	require.Same(t, task, reused)
+	require.Equal(t, chunk.RowPtr{}, reused.cursor)
+	require.False(t, reused.hasMatch)
+	require.False(t, reused.hasNull)
+	require.Nil(t, reused.outerMatch)
+	require.Empty(t, reused.matchedInners)
+	require.Empty(t, reused.encodedLookUpKeys)
+	require.Equal(t, 0, reused.outerResult.Len())
+	require.Equal(t, 0, reused.lookupMap.Len())
+	select {
+	case <-reused.doneCh:
+		t.Fatal("done channel should be drained before task reuse")
+	default:
+	}
 }

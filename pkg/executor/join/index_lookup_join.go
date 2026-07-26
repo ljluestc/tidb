@@ -88,6 +88,8 @@ type IndexLookUpJoin struct {
 	stats    *indexLookUpJoinRuntimeStats
 	Finished *atomic.Value
 	prepared bool
+
+	taskPool sync.Pool
 }
 
 // OuterCtx is the outer ctx used in index lookup join
@@ -189,6 +191,14 @@ func (e *IndexLookUpJoin) Open(ctx context.Context) error {
 	e.Finished.Store(false)
 	if e.RuntimeStats() != nil {
 		e.stats = &indexLookUpJoinRuntimeStats{}
+	}
+	e.taskPool = sync.Pool{
+		New: func() any {
+			return &lookUpJoinTask{
+				doneCh:    make(chan error, 1),
+				lookupMap: mvmap.NewMVMap(),
+			}
+		},
 	}
 	e.cancelFunc = nil
 	return nil
@@ -347,6 +357,8 @@ func (e *IndexLookUpJoin) getFinishedTask(ctx context.Context) (*lookUpJoinTask,
 	// The previous task has been processed, so release the occupied memory
 	if task != nil {
 		task.memTracker.Detach()
+		e.recycleLookUpJoinTask(task)
+		e.task = nil
 	}
 	select {
 	case task = <-e.resultCh:
@@ -368,6 +380,40 @@ func (e *IndexLookUpJoin) getFinishedTask(ctx context.Context) (*lookUpJoinTask,
 
 	e.task = task
 	return task, nil
+}
+
+func (e *IndexLookUpJoin) newLookUpJoinTask(outerExec exec.Executor) *lookUpJoinTask {
+	task := e.taskPool.Get().(*lookUpJoinTask)
+	for {
+		select {
+		case <-task.doneCh:
+		default:
+			goto done
+		}
+	}
+done:
+	task.cursor = chunk.RowPtr{}
+	task.hasMatch = false
+	task.hasNull = false
+	task.outerMatch = nil
+	task.matchedInners = task.matchedInners[:0]
+	task.innerExec = nil
+	task.innerResult = nil
+	task.lookupMap = mvmap.NewMVMap()
+	if task.outerResult == nil {
+		task.outerResult = newList(outerExec)
+	} else {
+		task.outerResult.Reset()
+	}
+	for i := range task.encodedLookUpKeys {
+		task.encodedLookUpKeys[i].Reset()
+	}
+	task.encodedLookUpKeys = task.encodedLookUpKeys[:0]
+	return task
+}
+
+func (e *IndexLookUpJoin) recycleLookUpJoinTask(task *lookUpJoinTask) {
+	e.taskPool.Put(task)
 }
 
 func (e *IndexLookUpJoin) lookUpMatchedInners(task *lookUpJoinTask, rowPtr chunk.RowPtr) {
@@ -437,11 +483,7 @@ func newList(e exec.Executor) *chunk.List {
 // buildTask builds a lookUpJoinTask and read Outer rows.
 // When err is not nil, task must not be nil to send the error to the main thread via task.
 func (ow *outerWorker) buildTask(ctx context.Context) (*lookUpJoinTask, error) {
-	task := &lookUpJoinTask{
-		doneCh:      make(chan error, 1),
-		outerResult: newList(ow.executor),
-		lookupMap:   mvmap.NewMVMap(),
-	}
+	task := ow.lookup.newLookUpJoinTask(ow.executor)
 	task.memTracker = memory.NewTracker(-1, -1)
 	task.outerResult.GetMemTracker().AttachTo(task.memTracker)
 	task.memTracker.AttachTo(ow.parentMemTracker)
@@ -472,6 +514,8 @@ func (ow *outerWorker) buildTask(ctx context.Context) (*lookUpJoinTask, error) {
 		task.outerResult.Add(chk)
 	}
 	if task.outerResult.Len() == 0 {
+		task.memTracker.Detach()
+		ow.lookup.recycleLookUpJoinTask(task)
 		return nil, nil
 	}
 	numChks := task.outerResult.NumChunks()
@@ -489,13 +533,21 @@ func (ow *outerWorker) buildTask(ctx context.Context) (*lookUpJoinTask, error) {
 			}
 		}
 	}
-	task.encodedLookUpKeys = make([]*chunk.Chunk, task.outerResult.NumChunks())
-	for i := range task.encodedLookUpKeys {
-		task.encodedLookUpKeys[i] = ow.executor.NewChunkWithCapacity(
-			[]*types.FieldType{types.NewFieldType(mysql.TypeBlob)},
-			task.outerResult.GetChunk(i).NumRows(),
-			task.outerResult.GetChunk(i).NumRows(),
-		)
+	numOuterChunks := task.outerResult.NumChunks()
+	if cap(task.encodedLookUpKeys) < numOuterChunks {
+		task.encodedLookUpKeys = append(task.encodedLookUpKeys[:cap(task.encodedLookUpKeys)], make([]*chunk.Chunk, numOuterChunks-cap(task.encodedLookUpKeys))...)
+	}
+	task.encodedLookUpKeys = task.encodedLookUpKeys[:numOuterChunks]
+	for i := range numOuterChunks {
+		if task.encodedLookUpKeys[i] == nil {
+			task.encodedLookUpKeys[i] = ow.executor.NewChunkWithCapacity(
+				[]*types.FieldType{types.NewFieldType(mysql.TypeBlob)},
+				task.outerResult.GetChunk(i).NumRows(),
+				task.outerResult.GetChunk(i).NumRows(),
+			)
+			continue
+		}
+		task.encodedLookUpKeys[i].Reset()
 	}
 	return task, nil
 }
@@ -842,7 +894,11 @@ func (e *IndexLookUpJoin) Close() error {
 	}
 	e.WorkerWg.Wait()
 	e.memTracker = nil
-	e.task = nil
+	if e.task != nil {
+		e.task.memTracker.Detach()
+		e.recycleLookUpJoinTask(e.task)
+		e.task = nil
+	}
 	e.Finished.Store(false)
 	e.prepared = false
 	return e.BaseExecutor.Close()
