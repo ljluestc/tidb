@@ -15,9 +15,11 @@
 package executor_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/pingcap/tidb/pkg/testkit"
+	"github.com/stretchr/testify/require"
 )
 
 func TestChecksum(t *testing.T) {
@@ -34,9 +36,37 @@ func TestChecksum(t *testing.T) {
 			PARTITION p0 VALUES LESS THAN (10),
 			PARTITION p1 VALUES LESS THAN MAXVALUE
 		);`)
-	// for unistore, each checksum request will return
-	// Checksum: 1, TotalKvs: 1, TotalBytes: 1,
-	// see cophandler.handleCopChecksumRequest
-	// here we only check 2 (index) * 3 (partition) requests are sent
-	tk.MustQuery("ADMIN CHECKSUM TABLE t").Check(testkit.Rows("test t 0 6 6"))
+	tk.MustExec("INSERT INTO t VALUES (1, 11), (2, 12), (15, 13)")
+
+	rows := tk.MustQuery("ADMIN CHECKSUM TABLE t").Rows()
+	require.Len(t, rows, 1)
+
+	totalKvs, err := strconv.ParseUint(rows[0][3].(string), 10, 64)
+	require.NoError(t, err)
+	// 3 table rows + 3 index rows.
+	require.Equal(t, uint64(6), totalKvs)
+
+	totalBytes, err := strconv.ParseUint(rows[0][4].(string), 10, 64)
+	require.NoError(t, err)
+	require.Greater(t, totalBytes, uint64(0))
+}
+
+func TestChecksumHashPartitionSingleRow(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("USE test")
+	tk.MustExec("CREATE TABLE tb(id INT PRIMARY KEY) PARTITION BY HASH(id) PARTITIONS 16")
+	tk.MustExec("INSERT INTO tb VALUES(1)")
+
+	rows := tk.MustQuery("ADMIN CHECKSUM TABLE tb").Rows()
+	require.Len(t, rows, 1)
+
+	totalKvs, err := strconv.ParseUint(rows[0][3].(string), 10, 64)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), totalKvs)
+
+	totalBytes, err := strconv.ParseUint(rows[0][4].(string), 10, 64)
+	require.NoError(t, err)
+	require.Greater(t, totalBytes, uint64(0))
 }
