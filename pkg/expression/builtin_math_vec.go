@@ -155,7 +155,7 @@ func (b *builtinAsinSig) vecEvalReal(ctx EvalContext, input *chunk.Chunk, result
 		if f64s[i] < -1 || f64s[i] > 1 {
 			result.SetNull(i, true)
 		} else {
-			f64s[i] = math.Asin(f64s[i])
+			f64s[i] = asinAccurate(f64s[i])
 		}
 	}
 	return nil

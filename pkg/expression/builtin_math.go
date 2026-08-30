@@ -1550,6 +1550,48 @@ func (b *builtinAcosSig) evalReal(ctx EvalContext, row chunk.Row) (float64, bool
 	return math.Acos(val), false, nil
 }
 
+// Constants used by asinAccurate to reconstruct pi/2 with extra precision:
+// pio2Hi is the float64 nearest to pi/2 and pio2Lo is the part of pi/2 that
+// does not fit into pio2Hi.
+const (
+	pio2Hi = 1.57079632679489655800e+00
+	pio2Lo = 6.12323399573676603587e-17
+	// asinHalfAngle is the point above which math.Asin loses more than one ULP,
+	// so the half-angle identity is used instead.
+	asinHalfAngle = 0.9
+)
+
+// asinAccurate returns asin(x) for x in [-1, 1] with an error of at most one ULP.
+//
+// math.Asin evaluates asin(x) as atan(x/sqrt(1-x*x)). For |x| close to 1 the
+// subtraction 1-x*x cancels almost all significant bits of the operands, which
+// costs the result up to ~1000 ULPs, for example asin(-0.999999999) already
+// differs from the correctly rounded value in the 14th digit. MySQL evaluates
+// asin() with the platform libm, which stays within one ULP, so TiDB has to be
+// as accurate to stay compatible (see issue #6832). TiKV also evaluates a
+// pushed-down asin() through libm, so the extra accuracy additionally keeps the
+// two engines in agreement.
+//
+// For |x| >= asinHalfAngle the half-angle identity
+//
+//	asin(x) = sign(x) * (pi/2 - 2*asin(sqrt((1-|x|)/2)))
+//
+// avoids the cancellation: 1-|x| is exact for |x| >= 0.5, and the remaining
+// asin argument is small enough for math.Asin to be accurate. pi/2 is folded
+// back in two parts so that its own representation error stays below the last
+// bit of the result.
+func asinAccurate(x float64) float64 {
+	ax := math.Abs(x)
+	if ax < asinHalfAngle {
+		return math.Asin(x)
+	}
+	r := pio2Hi - (2*math.Asin(math.Sqrt((1-ax)/2)) - pio2Lo)
+	if x < 0 {
+		return -r
+	}
+	return r
+}
+
 type asinFunctionClass struct {
 	baseFunctionClass
 }
@@ -1592,7 +1634,7 @@ func (b *builtinAsinSig) evalReal(ctx EvalContext, row chunk.Row) (float64, bool
 		return 0, true, nil
 	}
 
-	return math.Asin(val), false, nil
+	return asinAccurate(val), false, nil
 }
 
 type atanFunctionClass struct {

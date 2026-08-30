@@ -929,6 +929,13 @@ func TestAsin(t *testing.T) {
 		{float64(-1), -1.5707963267948966, false, false},
 		{float64(-2), 0, true, false},
 		{"tidb", 0, false, true},
+		// Arguments close to +-1 are the precision sensitive ones, the expected
+		// values below are the ones MySQL returns, see issue #6832.
+		{float64(0.9), 1.1197695149986342, false, false},
+		{float64(-0.9), -1.1197695149986342, false, false},
+		{float64(0.999999999), 1.5707516054359754, false, false},
+		{float64(-0.999999999), -1.5707516054359754, false, false},
+		{float64(0.99999999999999), 1.5707961854300692, false, false},
 	}
 
 	for _, test := range tests {
