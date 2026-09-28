@@ -1287,6 +1287,12 @@ func (cc *clientConn) Run(ctx context.Context) {
 				return
 			} else if terror.ErrResultUndetermined.Equal(err) {
 				logutil.Logger(ctx).Warn("result undetermined, close this connection", zap.Error(err))
+				// This branch closes the connection, so the metric bookkeeping shared
+				// by the other commands below is never reached. Record the failure
+				// here, otherwise an undetermined result is the one command failure
+				// that never shows up in the query and error metrics.
+				cc.countExecuteError(err)
+				cc.addQueryMetrics(data[0], startTime, err)
 				server_metrics.DisconnectErrorUndetermined.Inc()
 				return
 			} else if terror.ErrCritical.Equal(err) {
@@ -1297,10 +1303,7 @@ func (cc *clientConn) Run(ctx context.Context) {
 			if ctx := cc.getCtx(); ctx != nil {
 				txnMode = ctx.GetSessionVars().GetReadableTxnMode()
 			}
-			vars := cc.getCtx().GetSessionVars()
-			for _, dbName := range session.GetDBNames(vars) {
-				metrics.ExecuteErrorCounter.WithLabelValues(metrics.ExecuteErrorToLabel(err), dbName, vars.ResourceGroupName).Inc()
-			}
+			cc.countExecuteError(err)
 
 			if storeerr.ErrLockAcquireFailAndNoWaitSet.Equal(err) {
 				logutil.Logger(ctx).Debug("Expected error for FOR UPDATE NOWAIT", zap.Error(err))
@@ -1371,6 +1374,22 @@ func (cc *clientConn) addConnMetrics() {
 		metrics.TLSCipher.WithLabelValues(
 			tlsutil.CipherSuiteName(connState.CipherSuite),
 		).Inc()
+	}
+}
+
+// countExecuteError reports a failed command to the execute error metrics that
+// back the "Failed Query OPM" panel. Every command goes through it, so paths
+// that close the connection before reaching the common error handling in Run
+// have to call it themselves.
+func (cc *clientConn) countExecuteError(err error) {
+	tidbCtx := cc.getCtx()
+	if tidbCtx == nil {
+		return
+	}
+	vars := tidbCtx.GetSessionVars()
+	label := metrics.ExecuteErrorToLabel(err)
+	for _, dbName := range session.GetDBNames(vars) {
+		metrics.ExecuteErrorCounter.WithLabelValues(label, dbName, vars.ResourceGroupName).Inc()
 	}
 }
 

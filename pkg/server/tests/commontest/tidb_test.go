@@ -40,12 +40,14 @@ import (
 	"github.com/pingcap/tidb/pkg/config/kerneltype"
 	ddlutil "github.com/pingcap/tidb/pkg/ddl/util"
 	"github.com/pingcap/tidb/pkg/extension"
+	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/auth"
 	tmysql "github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/parser/terror"
 	"github.com/pingcap/tidb/pkg/plugin"
+	"github.com/pingcap/tidb/pkg/resourcegroup"
 	server2 "github.com/pingcap/tidb/pkg/server"
 	"github.com/pingcap/tidb/pkg/server/internal/column"
 	"github.com/pingcap/tidb/pkg/server/internal/resultset"
@@ -66,6 +68,7 @@ import (
 	mockTopSQLTraceCPU "github.com/pingcap/tidb/pkg/util/topsql/collector/mock"
 	topsqlstate "github.com/pingcap/tidb/pkg/util/topsql/state"
 	"github.com/pingcap/tidb/pkg/util/topsql/stmtstats"
+	promtestutils "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	"github.com/tikv/client-go/v2/tikvrpc"
 	"go.opencensus.io/stats/view"
@@ -3709,9 +3712,21 @@ func TestCloseConnForUndeterminedError(t *testing.T) {
 		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/store/mockstore/unistore/rpcCommitResult"))
 	}()
 
+	// Closing the connection must not hide the failure from the metrics that
+	// back the "Failed Query OPM" and "Query Total" panels.
+	execErrCounter := metrics.ExecuteErrorCounter.WithLabelValues(
+		metrics.ExecuteErrorToLabel(terror.ErrResultUndetermined), "", resourcegroup.DefaultResourceGroupName)
+	queryErrCounter := metrics.QueryTotalCounter.WithLabelValues(
+		"Query", "Error", resourcegroup.DefaultResourceGroupName)
+	execErrBefore := promtestutils.ToFloat64(execErrCounter)
+	queryErrBefore := promtestutils.ToFloat64(queryErrCounter)
+
 	_, err = conn.ExecContext(context.Background(), "commit")
 	// because TiKV responses UndeterminedResult, the connection should be disconnected without reporting mysql error.
 	require.EqualError(t, err, "invalid connection")
+
+	require.Equal(t, execErrBefore+1, promtestutils.ToFloat64(execErrCounter))
+	require.Equal(t, queryErrBefore+1, promtestutils.ToFloat64(queryErrCounter))
 }
 
 func TestAuditPluginInfoForStarting(t *testing.T) {
