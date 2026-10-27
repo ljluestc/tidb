@@ -248,6 +248,25 @@ WHERE
 	tk.MustExec(`rollback`)
 }
 
+func TestIssue72427(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("create table t (id bigint unsigned not null, tenant varchar(16) not null, primary key (id) clustered, key idx_tenant (tenant))")
+	tk.MustExec("insert into t values (1, 'a'), (3, 'b'), (18446744073709551613, 'b')")
+	tk.MustExec("begin")
+	tk.MustExec("insert into t values (2, 'b'), (18446744073709551614, 'b')")
+	// The keep-order full table scan on an unsigned handle is split at the int64 boundary, UnionScan must still
+	// see the rows added in the membuffer on both sides of the boundary.
+	tk.MustHavePlan("select * from t use index(primary) where tenant = 'b' order by id", "UnionScan")
+	tk.MustQuery("select id from t use index(primary) where tenant = 'b' order by id").Check(
+		testkit.Rows("2", "3", "18446744073709551613", "18446744073709551614"))
+	tk.MustQuery("select id from t use index(primary) where tenant = 'b' order by id desc").Check(
+		testkit.Rows("18446744073709551614", "18446744073709551613", "3", "2"))
+	tk.MustQuery("select id from t use index(primary) where tenant = 'b' order by id limit 1").Check(testkit.Rows("2"))
+	tk.MustExec("rollback")
+}
+
 func TestIssue28073(t *testing.T) {
 	store := testkit.CreateMockStore(t)
 	tk := testkit.NewTestKit(t, store)
