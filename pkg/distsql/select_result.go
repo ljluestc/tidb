@@ -366,7 +366,14 @@ func (r *selectResult) fetchResp(ctx context.Context) error {
 	return r.fetchRespWithIntermediateResults(ctx, nil)
 }
 
-func (r *selectResult) fetchRespWithIntermediateResults(ctx context.Context, intermediateOutputTypes [][]*types.FieldType) error {
+func (r *selectResult) fetchRespWithIntermediateResults(ctx context.Context, intermediateOutputTypes [][]*types.FieldType) (retErr error) {
+	defer func() {
+		// A failed fetch ends the request, so record it once with the error label.
+		// Otherwise fast failures would be invisible in the duration metric.
+		if retErr != nil {
+			r.reportFetchDuration(metrics.LblError)
+		}
+	}()
 	defer func() {
 		if r.stats != nil {
 			// Ignore internal sql.
@@ -424,17 +431,8 @@ func (r *selectResult) fetchRespWithIntermediateResults(ctx context.Context, int
 		if resultSubset == nil {
 			r.selectResp = nil
 			atomic.StoreInt64(&r.selectRespSize, 0)
-			if !r.durationReported {
-				// final round of fetch
-				// TODO: Add a label to distinguish between success or failure.
-				// https://github.com/pingcap/tidb/issues/11397
-				if r.paging {
-					metrics.DistSQLQueryHistogram.WithLabelValues(r.label, r.sqlType, "paging").Observe(r.fetchDuration.Seconds())
-				} else {
-					metrics.DistSQLQueryHistogram.WithLabelValues(r.label, r.sqlType, "common").Observe(r.fetchDuration.Seconds())
-				}
-				r.durationReported = true
-			}
+			// final round of fetch
+			r.reportFetchDuration(metrics.LblOK)
 			return nil
 		}
 		r.selectResp = new(tipb.SelectResponse)
@@ -494,6 +492,19 @@ func (r *selectResult) fetchRespWithIntermediateResults(ctx context.Context, int
 		}
 	}
 	return nil
+}
+
+// reportFetchDuration observes the accumulated fetch duration at most once per selectResult.
+func (r *selectResult) reportFetchDuration(result string) {
+	if r.durationReported {
+		return
+	}
+	coprType := "common"
+	if r.paging {
+		coprType = "paging"
+	}
+	metrics.DistSQLQueryHistogram.WithLabelValues(r.label, r.sqlType, coprType, result).Observe(r.fetchDuration.Seconds())
+	r.durationReported = true
 }
 
 func (r *selectResult) Next(ctx context.Context, chk *chunk.Chunk) error {

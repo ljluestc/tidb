@@ -16,11 +16,13 @@ package distsql
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/parser/charset"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/sessionctx"
@@ -33,6 +35,8 @@ import (
 	"github.com/pingcap/tidb/pkg/util/memory"
 	"github.com/pingcap/tidb/pkg/util/mock"
 	"github.com/pingcap/tipb/go-tipb"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 	tikvstore "github.com/tikv/client-go/v2/kv"
 	"github.com/tikv/client-go/v2/tikv"
@@ -151,6 +155,41 @@ func TestSelectResultRuntimeStats(t *testing.T) {
 	require.Equal(t, expect, s1.String())
 }
 
+func distSQLQueryCount(t *testing.T, result string) uint64 {
+	m := &dto.Metric{}
+	observer := metrics.DistSQLQueryHistogram.WithLabelValues("dag", "general", "common", result)
+	require.NoError(t, observer.(prometheus.Metric).Write(m))
+	return m.GetHistogram().GetSampleCount()
+}
+
+func TestSelectQueryDurationMetricResult(t *testing.T) {
+	// Success is reported once with the ok label.
+	okBefore, errBefore := distSQLQueryCount(t, metrics.LblOK), distSQLQueryCount(t, metrics.LblError)
+	response, colTypes := createSelectNormal(t, 1, 2, nil, nil)
+	chk := chunk.New(colTypes, 32, 32)
+	for {
+		require.NoError(t, response.Next(context.TODO(), chk))
+		if chk.NumRows() == 0 {
+			break
+		}
+	}
+	require.NoError(t, response.Next(context.TODO(), chk))
+	require.NoError(t, response.Close())
+	require.Equal(t, okBefore+1, distSQLQueryCount(t, metrics.LblOK))
+	require.Equal(t, errBefore, distSQLQueryCount(t, metrics.LblError))
+
+	// Failure is reported once with the error label.
+	okBefore, errBefore = distSQLQueryCount(t, metrics.LblOK), distSQLQueryCount(t, metrics.LblError)
+	response, colTypes = createSelectNormal(t, 1, 2, nil, nil)
+	response.resp.(*mockResponse).err = errors.New("mock cop error")
+	chk = chunk.New(colTypes, 32, 32)
+	require.ErrorContains(t, response.Next(context.TODO(), chk), "mock cop error")
+	require.ErrorContains(t, response.Next(context.TODO(), chk), "mock cop error")
+	require.NoError(t, response.Close())
+	require.Equal(t, okBefore, distSQLQueryCount(t, metrics.LblOK))
+	require.Equal(t, errBefore+1, distSQLQueryCount(t, metrics.LblError))
+}
+
 func TestAnalyze(t *testing.T) {
 	sctx := newMockSessionContext()
 	sctx.GetSessionVars().EnableChunkRPC = false
@@ -208,7 +247,9 @@ type mockResponse struct {
 	ctx   sessionctx.Context
 	// intermediateOutputs is used to mock the intermediate output from coprocessor.
 	intermediateOutputs [][]*tipb.IntermediateOutput
-	closed              bool
+	// err is returned by Next when set, to mock a failed coprocessor request.
+	err    error
+	closed bool
 	sync.Mutex
 }
 
@@ -229,6 +270,9 @@ func (resp *mockResponse) Next(context.Context) (kv.ResultSubset, error) {
 
 	if resp.closed {
 		panic("closed")
+	}
+	if resp.err != nil {
+		return nil, resp.err
 	}
 
 	var intermediateOutputs []*tipb.IntermediateOutput

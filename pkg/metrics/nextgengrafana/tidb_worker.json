@@ -9532,10 +9532,10 @@
           "steppedLine": false,
           "targets": [
             {
-              "expr": "sum(rate(tidb_distsql_handle_query_duration_seconds_count{k8s_cluster=\"$k8s_cluster\", tidb_cluster=\"$tidb_cluster\", instance=~\"$instance\"}[1m])) by (copr_type)",
+              "expr": "sum(rate(tidb_distsql_handle_query_duration_seconds_count{k8s_cluster=\"$k8s_cluster\", tidb_cluster=\"$tidb_cluster\", instance=~\"$instance\"}[1m])) by (copr_type, result)",
               "format": "time_series",
               "intervalFactor": 2,
-              "legendFormat": "{{copr_type}}",
+              "legendFormat": "{{copr_type}}-{{result}}",
               "metric": "tidb_distsql_query_total",
               "refId": "A",
               "step": 4
